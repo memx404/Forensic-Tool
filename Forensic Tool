@@ -1,0 +1,225 @@
+import os
+import hashlib
+from cryptography.fernet import Fernet
+import tkinter as tk
+import mimetypes
+from tkinter import filedialog, messagebox, scrolledtext
+from datetime import datetime
+from PIL import Image
+from PIL.ExifTags import TAGS
+
+
+def generate_encryption_key():
+    return Fernet.generate_key()
+
+def load_encryption_key(key_path):
+    with open(key_path, 'rb') as key_file:
+        return key_file.read()
+
+def save_encryption_key(key, key_path):
+    with open(key_path, 'wb') as key_file:
+        key_file.write(key)
+
+
+def encrypt_target_file(file_path, key):
+    fernet = Fernet(key)
+    with open(file_path, 'rb') as file:
+        file_data = file.read()
+    encrypted_data = fernet.encrypt(file_data)
+    with open(file_path, 'wb') as file:
+        file.write(encrypted_data)
+    return "File encrypted successfully."
+
+def decrypt_target_file(file_path, key):
+    fernet = Fernet(key)
+    with open(file_path, 'rb') as file:
+        encrypted_data = file.read()
+    decrypted_data = fernet.decrypt(encrypted_data)
+    with open(file_path, 'wb') as file:
+        file.write(decrypted_data)
+    return "File decrypted successfully."
+
+
+def format_file_timestamp(ts):
+    return datetime.utcfromtimestamp(ts).strftime('%I:%M %p %d-%m-%Y')
+
+def format_file_permissions(st_mode):
+    is_dir = 'Directory' if os.path.isdir(st_mode) else 'File'
+    perm = ''.join(['read ' if st_mode & (256 >> i * 3) else 'no permission ' for i in range(3)])
+    perm += ''.join(['write ' if st_mode & (128 >> i * 3) else 'no permission ' for i in range(3)])
+    perm += ''.join(['execute ' if st_mode & (64 >> i * 3) else 'no permission ' for i in range(3)])
+    return f"{is_dir}: {perm.strip()}"
+
+
+def analyze_target_file(file_path):
+    report = []
+    file_info = {}
+
+    file_info['File Name'] = os.path.basename(file_path)
+    file_info['File Path'] = file_path
+    file_info['File Size'] = os.path.getsize(file_path)
+    file_info['File Creation Date'] = format_file_timestamp(os.path.getctime(file_path))
+    file_info['File Modification Date'] = format_file_timestamp(os.path.getmtime(file_path))
+    file_info['File Access Date'] = format_file_timestamp(os.path.getatime(file_path))
+
+    with open(file_path, 'rb') as f:
+        file_data = f.read()
+        file_info['SHA-512 Hash'] = hashlib.sha512(file_data).hexdigest()
+
+    file_info['MIME Type'] = mimetypes.guess_type(file_path)[0]
+    file_info['File Extension'] = os.path.splitext(file_path)[1]
+
+    file_info['File Permissions'] = format_file_permissions(os.stat(file_path).st_mode)
+    file_info['File Owner'] = os.stat(file_path).st_uid
+
+    if file_info['MIME Type'] and file_info['MIME Type'].startswith('image'):
+        image = Image.open(file_path)
+        file_info['Image Dimensions'] = image.size
+        file_info['Image Color Depth'] = image.mode
+
+        exif_data = image._getexif()
+        if exif_data:
+            exif = {TAGS.get(tag): value for tag, value in exif_data.items()}
+            file_info['EXIF Data'] = exif
+
+    report.append(file_info)
+    return report
+
+
+def generate_file_hash(file_path):
+    with open(file_path, 'rb') as f:
+        file_data = f.read()
+        return hashlib.sha512(file_data).hexdigest()
+
+
+def compare_target_files(file1, file2):
+    hash1 = generate_file_hash(file1)
+    hash2 = generate_file_hash(file2)
+    return hash1 == hash2, hash1, hash2
+
+class ForensicsToolkit:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Forensics Tool")
+        self.root.geometry("800x600")
+        self.root.configure(bg='#1e1e1e')
+
+        # Title Label
+        self.title_label = tk.Label(self.root, text="Forensics Tool", font=("Arial", 24, "bold"), bg='#1e1e1e', fg='white')
+        self.title_label.pack(pady=20)
+
+        # Button Frame
+        button_frame = tk.Frame(self.root, bg='#1e1e1e')
+        button_frame.pack(pady=20)
+
+        # Buttons with new colors and positions
+        self.analyze_button = tk.Button(button_frame, text="Analyze File", command=self.analyze_file, bg='#ff7f0e', fg='white', font=("Arial", 12), width=20)
+        self.analyze_button.grid(row=0, column=0, padx=10, pady=10)
+
+        self.encrypt_button = tk.Button(button_frame, text="Encrypt File", command=self.encrypt_file, bg='#2ca02c', fg='white', font=("Arial", 12), width=20)
+        self.encrypt_button.grid(row=0, column=1, padx=10, pady=10)
+
+        self.decrypt_button = tk.Button(button_frame, text="Decrypt File", command=self.decrypt_file, bg='#d62728', fg='white', font=("Arial", 12), width=20)
+        self.decrypt_button.grid(row=1, column=0, padx=10, pady=10)
+
+        self.integrity_button = tk.Button(button_frame, text="Test File Integrity", command=self.test_file_integrity, bg='#9467bd', fg='white', font=("Arial", 12), width=20)
+        self.integrity_button.grid(row=1, column=1, padx=10, pady=10)
+
+        self.exit_button = tk.Button(self.root, text="Exit", command=self.root.quit, bg='#8c564b', fg='white', font=("Arial", 12), width=20)
+        self.exit_button.pack(pady=20)
+
+    def encrypt_file(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            key_path = filedialog.asksaveasfilename(title="Save Encryption Key", defaultextension=".key")
+            if key_path:
+                key = generate_encryption_key()
+                save_encryption_key(key, key_path)
+                result = encrypt_target_file(file_path, key)
+                messagebox.showinfo("Encrypt File", result)
+
+    def decrypt_file(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            key_path = filedialog.askopenfilename(title="Select Encryption Key File", filetypes=[("Key Files", "*.key")])
+            if key_path:
+                key = load_encryption_key(key_path)
+                result = decrypt_target_file(file_path, key)
+                messagebox.showinfo("Decrypt File", result)
+
+    def analyze_file(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            self.analysis_data = analyze_target_file(file_path)
+            self.display_analysis_report(self.analysis_data)
+
+    def test_file_integrity(self):
+        file1 = filedialog.askopenfilename(title="Select the Original File")
+        if file1:
+            file2 = filedialog.askopenfilename(title="Select the File to Compare")
+            if file2:
+                is_same, hash1, hash2 = compare_target_files(file1, file2)
+                if is_same:
+                    messagebox.showinfo("Integrity Check", f"The files are identical.\n\nFile 1: {file1}\nHash: {hash1}\n\nFile 2: {file2}\nHash: {hash2}")
+                else:
+                    messagebox.showinfo("Integrity Check", f"The files are different.\n\nFile 1: {file1}\nHash: {hash1}\n\nFile 2: {file2}\nHash: {hash2}")
+
+    def display_analysis_report(self, data):
+        report_window = tk.Toplevel(self.root)
+        report_window.title("Analysis Report")
+        report_window.geometry("800x600")
+        report_window.configure(bg='#1e1e1e')
+
+        text_area = scrolledtext.ScrolledText(report_window, wrap=tk.WORD, bg='#333333', fg='white', font=("Arial", 12))
+        text_area.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+        for entry in data:
+            for key, value in entry.items():
+                if isinstance(value, dict): 
+                    text_area.insert(tk.END, f"{key}:\n")
+                    for subkey, subvalue in value.items():
+                        text_area.insert(tk.END, f"    {subkey}: {subvalue}\n")
+                else:
+                    text_area.insert(tk.END, f"{key}: {value}\n")
+            text_area.insert(tk.END, "\n")
+
+        text_area.configure(state='disabled')
+
+# Unit Testing
+def run_unit_tests():
+    # Test encryption and decryption
+    test_file = "test.txt"
+    with open(test_file, "w") as f:
+        f.write("This is a test file.")
+
+    key = generate_encryption_key()
+    encrypt_target_file(test_file, key)
+    assert os.path.exists(test_file), "Encryption failed: File does not exist."
+    decrypt_target_file(test_file, key)
+    with open(test_file, "r") as f:
+        content = f.read()
+    assert content == "This is a test file.", "Decryption failed: Content mismatch."
+
+    # Test file hashing
+    hash1 = generate_file_hash(test_file)
+    hash2 = generate_file_hash(test_file)
+    assert hash1 == hash2, "Hashing failed: Hashes do not match."
+
+    # Test file comparison
+    file1 = "file1.txt"
+    file2 = "file2.txt"
+    with open(file1, "w") as f:
+        f.write("Same content")
+    with open(file2, "w") as f:
+        f.write("Same content")
+    is_same, _, _ = compare_target_files(file1, file2)
+    assert is_same, "File comparison failed: Identical files reported as different."
+
+    print("All unit tests passed!")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ForensicsToolkit(root)
+    root.mainloop()
+
+    run_unit_tests()
